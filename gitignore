@@ -1,0 +1,35 @@
+# --- Terraform ---
+**/.terraform/*
+.terraform.tfstate.lock.info
+
+# Стейт никогда не коммитим: в нём могут лежать пароли и ключи в открытом виде
+*.tfstate
+*.tfstate.*
+
+# Планы — бинарники, могут содержать чувствительные значения
+*.tfplan
+plan.out
+crash.log
+crash.*.log
+
+# Значения переменных. Пример-файлы (*.tfvars.example) — коммитим
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# .terraform.lock.hcl НУЖНО коммитить — он фиксирует версии провайдеров.
+
+# --- Vagrant ---
+.vagrant/
+*.box
+ubuntu-*-console.log
+
+# --- OS / IDE ---
+.DS_Store
+.idea/
+.vscode/
+*.swp

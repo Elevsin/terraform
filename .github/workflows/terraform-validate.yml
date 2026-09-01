@@ -1,0 +1,311 @@
+---
+name: Terraform validate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  # ---------------------------------------------------------------------
+  # 1. Читаем версии инструментов из .tool-versions и ищем директории
+  #    с *.tf. Версии не дублируются в YAML — один источник правды
+  #    для локальной машины (mise/asdf) и для CI.
+  # ---------------------------------------------------------------------
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    outputs:
+      terraform_version: ${{ steps.versions.outputs.terraform }}
+      dirs: ${{ steps.find.outputs.dirs }}
+      has_dirs: ${{ steps.find.outputs.has_dirs }}
+      has_vagrantfile: ${{ steps.find.outputs.has_vagrantfile }}
+      has_tests: ${{ steps.find.outputs.has_tests }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: versions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -f .tool-versions ]; then
+            echo "::error::В корне репозитория нет .tool-versions"
+            exit 1
+          fi
+
+          tf=$(awk '$1=="terraform"{print $2}' .tool-versions)
+          if [ -z "$tf" ]; then
+            echo "::error::В .tool-versions нет строки 'terraform <версия>'"
+            exit 1
+          fi
+
+          echo "terraform=${tf}" >> "$GITHUB_OUTPUT"
+          echo "Terraform: ${tf}"
+
+      - id: find
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          dirs=$(find . -type f -name '*.tf' \
+                   -not -path './.git/*' \
+                   -not -path '*/.terraform/*' \
+                 -exec dirname {} \; | sort -u | sed 's|^\./||')
+
+          if [ -z "$dirs" ]; then
+            echo "has_dirs=false" >> "$GITHUB_OUTPUT"
+            echo "dirs=[]" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_dirs=true" >> "$GITHUB_OUTPUT"
+            echo "dirs=$(printf '%s\n' "$dirs" | jq -R -s -c 'split("\n")[:-1]')" >> "$GITHUB_OUTPUT"
+          fi
+
+          if find . -name 'Vagrantfile*' -not -path './.git/*' | grep -q .; then
+            echo "has_vagrantfile=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_vagrantfile=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if find . -name '*.tftest.hcl' -not -path './.git/*' | grep -q .; then
+            echo "has_tests=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_tests=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "Найденные директории:"
+          printf '%s\n' "$dirs"
+
+  # ---------------------------------------------------------------------
+  # 2. Форматирование
+  # ---------------------------------------------------------------------
+  fmt:
+    name: terraform fmt
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ needs.setup.outputs.terraform_version }}
+          terraform_wrapper: false
+
+      - name: terraform fmt -check
+        run: terraform fmt -check -recursive -diff
+
+  # ---------------------------------------------------------------------
+  # 3. init -backend=false + validate по каждой директории отдельно.
+  # ---------------------------------------------------------------------
+  validate:
+    name: validate (${{ matrix.dir }})
+    needs: setup
+    if: needs.setup.outputs.has_dirs == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJson(needs.setup.outputs.dirs) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ needs.setup.outputs.terraform_version }}
+          terraform_wrapper: false
+
+      - name: Prepare plugin cache dir
+        run: mkdir -p ~/.terraform.d/plugin-cache
+
+      - name: Cache providers
+        uses: actions/cache@v5
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: tf-plugins-${{ runner.os }}-${{ hashFiles('**/.terraform.lock.hcl') }}
+          restore-keys: tf-plugins-${{ runner.os }}-
+
+      - name: terraform init
+        env:
+          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
+        run: terraform init -backend=false -no-color
+
+      - name: terraform validate
+        run: terraform validate -no-color
+
+  # ---------------------------------------------------------------------
+  # 4. TFLint
+  #    Провайдерного ruleset для vagrant нет — работает core-ruleset.
+  # ---------------------------------------------------------------------
+  tflint:
+    name: tflint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: terraform-linters/setup-tflint@v6
+        with:
+          tflint_version_file: .tool-versions
+
+      - name: tflint --init
+        run: tflint --init
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: tflint
+        run: tflint --recursive --format=compact --no-color
+
+  # ---------------------------------------------------------------------
+  # 5. Нативные тесты модулей terraform test
+  # ---------------------------------------------------------------------
+  tf-test:
+    name: terraform test
+    needs: setup
+    if: needs.setup.outputs.has_tests == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ needs.setup.outputs.terraform_version }}
+          terraform_wrapper: false
+
+      - name: terraform test
+        run: |
+          set -euo pipefail
+          rc=0
+          while IFS= read -r d; do
+            echo "::group::$d"
+            (cd "$d" && terraform init -backend=false -no-color && terraform test -no-color) || rc=1
+            echo "::endgroup::"
+          done < <(find . -name '*.tftest.hcl' -not -path './.git/*' -exec dirname {} \; | sort -u)
+          exit $rc
+
+  # ---------------------------------------------------------------------
+  # 6. синтаксис Vagrantfile и shellcheck по provisioning-скриптам.
+  # ---------------------------------------------------------------------
+  vagrant-lint:
+    name: Vagrantfile & shell lint
+    needs: setup
+    if: needs.setup.outputs.has_vagrantfile == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Ruby syntax check (Vagrantfile)
+        shell: bash
+        run: |
+          set -euo pipefail
+          rc=0
+          while IFS= read -r f; do
+            echo "::group::$f"
+            ruby -c "$f" || rc=1
+            echo "::endgroup::"
+          done < <(find . -name 'Vagrantfile*' -not -path './.git/*')
+          exit $rc
+
+      # сигнализирует, но не блокирует PR.
+      - name: vagrant validate (soft)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          wget -qO- https://apt.releases.hashicorp.com/gpg \
+            | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+            https://apt.releases.hashicorp.com $(lsb_release -cs) main" \
+            | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update -qq && sudo apt-get install -y vagrant
+          while IFS= read -r f; do
+            (cd "$(dirname "$f")" && vagrant validate)
+          done < <(find . -name 'Vagrantfile' -not -path './.git/*')
+
+      - name: shellcheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find . -name '*.sh' -not -path './.git/*')
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "shell-скриптов не найдено, пропускаем"
+            exit 0
+          fi
+          shellcheck --severity=warning "${files[@]}"
+
+  # ---------------------------------------------------------------------
+  # 7. Проверка, что README модулей соответствует их переменным.
+  # ---------------------------------------------------------------------
+  docs:
+    name: terraform-docs
+    runs-on: ubuntu-latest
+    if: hashFiles('modules/**/*.tf') != ''
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: terraform-docs/gh-actions@v1
+        with:
+          find-dir: modules
+          output-file: README.md
+          output-method: inject
+          output-check: true
+
+  # ---------------------------------------------------------------------
+  # 8. Секреты в коде и корректность самих воркфлоу.
+  # ---------------------------------------------------------------------
+  hygiene:
+    name: gitleaks & actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0        # gitleaks смотрит историю
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+
+  # ---------------------------------------------------------------------
+  # 9. Один статус-чек для branch protection.
+  # ---------------------------------------------------------------------
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs: [fmt, validate, tflint, tf-test, vagrant-lint, docs, hygiene]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        shell: bash
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS"
+          if echo "$RESULTS" | jq -e 'to_entries
+               | map(select(.value.result == "failure" or .value.result == "cancelled"))
+               | length > 0' > /dev/null; then
+            echo "::error::Есть упавшие джобы"
+            exit 1
+          fi
+          echo "Все проверки прошли"
