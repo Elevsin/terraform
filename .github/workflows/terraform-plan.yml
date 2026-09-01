@@ -24,21 +24,48 @@ env:
   TF_INPUT: "false"
 
 jobs:
+  discover:
+    name: Discover root modules
+    runs-on: ubuntu-latest
+    outputs:
+      dirs: ${{ steps.find.outputs.dirs }}
+      has_dirs: ${{ steps.find.outputs.has_dirs }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: find
+        shell: bash
+        run: |
+          set -euo pipefail
+          dirs=$(find . -type f -name 'backend.tf' \
+                   -not -path './.git/*' \
+                 -exec dirname {} \; | sort -u | sed 's|^\./||')
+          
+          if [ -z "$dirs" ]; then
+            echo "has_dirs=false" >> "$GITHUB_OUTPUT"
+            echo "dirs=[]" >> "$GITHUB_OUTPUT"
+            echo "backend.tf нигде не найден — планировать нечего, пропускаем."
+          else
+            echo "has_dirs=true" >> "$GITHUB_OUTPUT"
+            echo "dirs=$(printf '%s\n' "$dirs" | jq -R -s -c 'split("\n")[:-1]')" >> "$GITHUB_OUTPUT"
+            echo "Корневые конфигурации:"
+            printf '%s\n' "$dirs"
+          fi
+
   plan:
     name: plan (${{ matrix.dir }})
-    runs-on: ubuntu-latest
+    needs: discover
+    runs-on: ubuntu-24.04
 
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+      needs.discover.outputs.has_dirs == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
 
     strategy:
       fail-fast: false
       matrix:
-        dir:
-          - env/dev
-          # - env/prod
-          # - vm
+        dir: ${{ fromJson(needs.discover.outputs.dirs) }}
 
     defaults:
       run:
