@@ -33,6 +33,7 @@ jobs:
       has_dirs: ${{ steps.find.outputs.has_dirs }}
       has_vagrantfile: ${{ steps.find.outputs.has_vagrantfile }}
       has_tests: ${{ steps.find.outputs.has_tests }}
+      has_modules: ${{ steps.find.outputs.has_modules }}
     steps:
       - uses: actions/checkout@v7
 
@@ -40,18 +41,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          
+
           if [ ! -f .tool-versions ]; then
             echo "::error::В корне репозитория нет .tool-versions"
             exit 1
           fi
-          
+
           tf=$(awk '$1=="terraform"{print $2}' .tool-versions)
           if [ -z "$tf" ]; then
             echo "::error::В .tool-versions нет строки 'terraform <версия>'"
             exit 1
           fi
-          
+
           echo "terraform=${tf}" >> "$GITHUB_OUTPUT"
           echo "Terraform: ${tf}"
 
@@ -83,6 +84,12 @@ jobs:
             echo "has_tests=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_tests=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if find ./modules -name '*.tf' 2>/dev/null | grep -q .; then
+            echo "has_modules=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_modules=false" >> "$GITHUB_OUTPUT"
           fi
 
           echo "Найденные директории:"
@@ -252,7 +259,8 @@ jobs:
   docs:
     name: terraform-docs
     runs-on: ubuntu-24.04
-    if: hashFiles('modules/**/*.tf') != ''
+    needs: setup
+    if: needs.setup.outputs.has_modules == 'true'
     steps:
       - uses: actions/checkout@v7
 
