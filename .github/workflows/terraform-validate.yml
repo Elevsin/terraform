@@ -269,7 +269,7 @@ jobs:
           find-dir: modules
           output-file: README.md
           output-method: inject
-          output-check: true
+          fail-on-diff: true
 
   # ---------------------------------------------------------------------
   # 8. Секреты в коде и корректность самих воркфлоу.

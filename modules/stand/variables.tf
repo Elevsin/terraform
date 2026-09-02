@@ -3,13 +3,33 @@
 # =============================================================================
 
 terraform {
+  required_version = "~> 1.16"
+
   required_providers {
-    vagrant    = { source = "bmatcuk/vagrant" }
-    ssh        = { source = "loafoe/ssh" }
-    docker     = { source = "kreuzwerker/docker" }
-    grafana    = { source = "grafana/grafana" }
-    postgresql = { source = "cyrilgdn/postgresql" }
-    mysql      = { source = "petoju/mysql" }
+    vagrant = {
+      source  = "bmatcuk/vagrant"
+      version = "~> 4.1"
+    }
+    ssh = {
+      source  = "loafoe/ssh"
+      version = "~> 2.7"
+    }
+    docker = {
+      source  = "kreuzwerker/docker"
+      version = "~> 4.5"
+    }
+    grafana = {
+      source  = "grafana/grafana"
+      version = "~> 3.25.7"
+    }
+    postgresql = {
+      source  = "cyrilgdn/postgresql"
+      version = "~> 1.26"
+    }
+    mysql = {
+      source  = "petoju/mysql"
+      version = "~> 3.0.94"
+    }
   }
 }
 

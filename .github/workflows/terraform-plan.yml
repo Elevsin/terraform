@@ -40,7 +40,7 @@ jobs:
           dirs=$(find . -type f -name 'backend.tf' \
                    -not -path './.git/*' \
                  -exec dirname {} \; | sort -u | sed 's|^\./||')
-          
+
           if [ -z "$dirs" ]; then
             echo "has_dirs=false" >> "$GITHUB_OUTPUT"
             echo "dirs=[]" >> "$GITHUB_OUTPUT"
@@ -137,10 +137,12 @@ jobs:
           destroy=$(jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' plan.json)
           replace=$(jq '[.resource_changes[]? | select(.change.actions == ["delete","create"] or .change.actions == ["create","delete"])] | length' plan.json)
 
-          echo "create=$create"   >> "$GITHUB_OUTPUT"
-          echo "update=$update"   >> "$GITHUB_OUTPUT"
-          echo "destroy=$destroy" >> "$GITHUB_OUTPUT"
-          echo "replace=$replace" >> "$GITHUB_OUTPUT"
+          {
+            echo "create=$create"
+            echo "update=$update"
+            echo "destroy=$destroy"
+            echo "replace=$replace"
+          } >> "$GITHUB_OUTPUT"
 
           # Список затронутых адресов — короткая выжимка для комментария.
           jq -r '.resource_changes[]?
