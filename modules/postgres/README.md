@@ -11,8 +11,8 @@
 
 | Name | Version |
 |------|---------|
-| <a name="provider_postgresql"></a> [postgresql](#provider\_postgresql) | 1.27.0 |
-| <a name="provider_ssh"></a> [ssh](#provider\_ssh) | 2.7.0 |
+| <a name="provider_postgresql"></a> [postgresql](#provider\_postgresql) | ~> 1.26 |
+| <a name="provider_ssh"></a> [ssh](#provider\_ssh) | ~> 2.7 |
 
 ## Resources
 

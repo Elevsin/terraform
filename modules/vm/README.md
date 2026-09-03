@@ -10,7 +10,7 @@
 
 | Name | Version |
 |------|---------|
-| <a name="provider_vagrant"></a> [vagrant](#provider\_vagrant) | 4.1.0 |
+| <a name="provider_vagrant"></a> [vagrant](#provider\_vagrant) | ~> 4.1 |
 
 ## Resources
 

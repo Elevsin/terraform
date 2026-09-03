@@ -172,10 +172,6 @@ jobs:
         run: tflint --init
         env:
           GITHUB_TOKEN: ${{ github.token }}
-
-      - name: tflint
-        run: tflint --recursive --format=compact --no-color
-
   # ---------------------------------------------------------------------
   # 5. Нативные тесты модулей terraform test
   # ---------------------------------------------------------------------

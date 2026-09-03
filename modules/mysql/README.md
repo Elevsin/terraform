@@ -11,8 +11,8 @@
 
 | Name | Version |
 |------|---------|
-| <a name="provider_mysql"></a> [mysql](#provider\_mysql) | 3.0.95 |
-| <a name="provider_ssh"></a> [ssh](#provider\_ssh) | 2.7.0 |
+| <a name="provider_mysql"></a> [mysql](#provider\_mysql) | ~> 3.0.94 |
+| <a name="provider_ssh"></a> [ssh](#provider\_ssh) | ~> 2.7 |
 
 ## Resources
 

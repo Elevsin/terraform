@@ -12,9 +12,9 @@
 
 | Name | Version |
 |------|---------|
-| <a name="provider_docker"></a> [docker](#provider\_docker) | 4.6.0 |
-| <a name="provider_grafana"></a> [grafana](#provider\_grafana) | 3.25.9 |
-| <a name="provider_ssh"></a> [ssh](#provider\_ssh) | 2.7.0 |
+| <a name="provider_docker"></a> [docker](#provider\_docker) | ~> 4.5 |
+| <a name="provider_grafana"></a> [grafana](#provider\_grafana) | ~> 3.25.7 |
+| <a name="provider_ssh"></a> [ssh](#provider\_ssh) | ~> 2.7 |
 
 ## Resources
 

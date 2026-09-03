@@ -10,7 +10,7 @@
 
 | Name | Version |
 |------|---------|
-| <a name="provider_ssh"></a> [ssh](#provider\_ssh) | 2.7.0 |
+| <a name="provider_ssh"></a> [ssh](#provider\_ssh) | ~> 2.7 |
 
 ## Resources
 
