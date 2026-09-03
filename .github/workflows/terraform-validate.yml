@@ -272,6 +272,10 @@ jobs:
           fail-on-diff: true
           config-file: .terraform-docs.yml
 
+      - name: Show diff
+        if: always()
+        run: git --no-pager diff HEAD -- 'modules/**/README.md'
+
   # ---------------------------------------------------------------------
   # 8. Секреты в коде и корректность самих воркфлоу.
   # ---------------------------------------------------------------------
