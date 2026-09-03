@@ -1,0 +1,243 @@
+---
+name: Terraform plan
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "**/*.tf"
+      - "**/*.tfvars"
+      - "**/.terraform.lock.hcl"
+      - ".github/workflows/terraform-plan.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write     # нужно, чтобы постить и обновлять комментарий
+
+concurrency:
+  group: plan-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  discover:
+    name: Discover root modules
+    runs-on: ubuntu-latest
+    outputs:
+      dirs: ${{ steps.find.outputs.dirs }}
+      has_dirs: ${{ steps.find.outputs.has_dirs }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: find
+        shell: bash
+        run: |
+          set -euo pipefail
+          dirs=$(find . -type f -name 'backend.tf' \
+                   -not -path './.git/*' \
+                 -exec dirname {} \; | sort -u | sed 's|^\./||')
+
+          if [ -z "$dirs" ]; then
+            echo "has_dirs=false" >> "$GITHUB_OUTPUT"
+            echo "dirs=[]" >> "$GITHUB_OUTPUT"
+            echo "backend.tf нигде не найден — планировать нечего, пропускаем."
+          else
+            echo "has_dirs=true" >> "$GITHUB_OUTPUT"
+            echo "dirs=$(printf '%s\n' "$dirs" | jq -R -s -c 'split("\n")[:-1]')" >> "$GITHUB_OUTPUT"
+            echo "Корневые конфигурации:"
+            printf '%s\n' "$dirs"
+          fi
+
+  plan:
+    name: plan (${{ matrix.dir }})
+    needs: discover
+    runs-on: ubuntu-24.04
+
+    if: >-
+      needs.discover.outputs.has_dirs == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJson(needs.discover.outputs.dirs) }}
+
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read Terraform version
+        id: versions
+        run: |
+          set -euo pipefail
+          tf=$(awk '$1=="terraform"{print $2}' "$GITHUB_WORKSPACE/.tool-versions")
+          if [ -z "$tf" ]; then
+            echo "::error::Не удалось прочитать версию terraform из .tool-versions"
+            exit 1
+          fi
+          echo "terraform=${tf}" >> "$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ steps.versions.outputs.terraform }}
+          terraform_wrapper: false
+
+      - name: terraform init
+        env:
+          # Креды к S3-совместимому хранилищу со стейтом.
+          AWS_ACCESS_KEY_ID: ${{ secrets.TF_STATE_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TF_STATE_SECRET_KEY }}
+        run: terraform init -no-color
+
+      - name: terraform plan
+        id: plan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.TF_STATE_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TF_STATE_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          # -refresh=false — не трогаем реальную инфраструктуру
+          # -lock=false    — не блокируем стейт, ты можешь работать локально
+          # -detailed-exitcode: 0 = без изменений, 2 = есть изменения, 1 = ошибка
+          set +e
+          terraform plan \
+            -refresh=false \
+            -lock=false \
+            -no-color \
+            -detailed-exitcode \
+            -out=tfplan
+          code=$?
+          set -e
+
+          echo "exitcode=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 1 ]; then
+            echo "plan завершился с ошибкой"
+            exit 1
+          fi
+
+      - name: Render plan summary
+        id: summary
+        run: |
+          set -euo pipefail
+
+          terraform show -json tfplan > plan.json
+          terraform show -no-color tfplan > plan.txt
+
+          # Считаем действия по типам.
+          create=$(jq '[.resource_changes[]? | select(.change.actions == ["create"])] | length' plan.json)
+          update=$(jq '[.resource_changes[]? | select(.change.actions == ["update"])] | length' plan.json)
+          destroy=$(jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' plan.json)
+          replace=$(jq '[.resource_changes[]? | select(.change.actions == ["delete","create"] or .change.actions == ["create","delete"])] | length' plan.json)
+
+          {
+            echo "create=$create"
+            echo "update=$update"
+            echo "destroy=$destroy"
+            echo "replace=$replace"
+          } >> "$GITHUB_OUTPUT"
+
+          # Список затронутых адресов — короткая выжимка для комментария.
+          jq -r '.resource_changes[]?
+                 | select(.change.actions != ["no-op"])
+                 | "\(.change.actions | join("+"))\t\(.address)"' plan.json > changes.tsv || true
+
+          # Тело комментария. GitHub ограничивает комментарий 65536 символами,
+          # поэтому длинный вывод обрезаем.
+          {
+            echo "changes<<PLANEOF"
+            head -c 40000 plan.txt
+            if [ "$(wc -c < plan.txt)" -gt 40000 ]; then
+              echo ""
+              echo "... вывод обрезан, смотри полный лог джобы ..."
+            fi
+            echo "PLANEOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "--- Затронутые ресурсы ---"
+          cat changes.tsv || true
+
+      # Комментарий обновляется на месте, а не плодится при каждом пуше.
+      - name: Upsert PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        env:
+          DIR: ${{ matrix.dir }}
+          EXITCODE: ${{ steps.plan.outputs.exitcode }}
+          CREATE: ${{ steps.summary.outputs.create }}
+          UPDATE: ${{ steps.summary.outputs.update }}
+          DESTROY: ${{ steps.summary.outputs.destroy }}
+          REPLACE: ${{ steps.summary.outputs.replace }}
+          PLAN_TEXT: ${{ steps.summary.outputs.changes }}
+        with:
+          script: |
+            const dir = process.env.DIR;
+            const marker = `<!-- tf-plan:${dir} -->`;
+
+            const noChanges = process.env.EXITCODE === '0';
+            const head = noChanges
+              ? `✅ Изменений нет`
+              : `📋 create: **${process.env.CREATE}** · update: **${process.env.UPDATE}** · replace: **${process.env.REPLACE}** · destroy: **${process.env.DESTROY}**`;
+
+            const body = [
+              marker,
+              `### Terraform plan — \`${dir}\``,
+              ``,
+              head,
+              ``,
+              `<sub>Плоский дифф: код vs записанный стейт. Refresh отключён — реальное состояние VM не проверялось.</sub>`,
+              ``,
+              `<details><summary>Показать план</summary>`,
+              ``,
+              '```hcl',
+              process.env.PLAN_TEXT || '(пусто)',
+              '```',
+              ``,
+              `</details>`,
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number, per_page: 100 }
+            );
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      # Защита от случайного удаления: если план содержит delete, PR падает,
+      # пока на него не навешен лейбл allow-destroy.
+      - name: Destroy gate
+        if: github.event_name == 'pull_request'
+        env:
+          DESTROY: ${{ steps.summary.outputs.destroy }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          if [ "${DESTROY:-0}" -gt 0 ]; then
+            if echo "$LABELS" | jq -e 'index("allow-destroy")' > /dev/null; then
+              echo "План содержит удаление ($DESTROY), но лейбл allow-destroy присутствует — пропускаем."
+            else
+              echo "::error::План удаляет $DESTROY ресурс(ов). Проверь и навесь лейбл 'allow-destroy', если это осознанно."
+              exit 1
+            fi
+          else
+            echo "Удалений в плане нет."
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: rm -f tfplan plan.json plan.txt changes.tsv

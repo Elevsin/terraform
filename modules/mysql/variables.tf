@@ -3,12 +3,16 @@
 # =============================================================================
 
 terraform {
+  required_version = "~> 1.16"
+
   required_providers {
     ssh = {
-      source = "loafoe/ssh"
+      source  = "loafoe/ssh"
+      version = "~> 2.7"
     }
     mysql = {
-      source = "petoju/mysql"
+      source  = "petoju/mysql"
+      version = "~> 3.0.94"
     }
   }
 }

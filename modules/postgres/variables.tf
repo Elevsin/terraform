@@ -3,12 +3,16 @@
 # =============================================================================
 
 terraform {
+  required_version = "~> 1.16"
+
   required_providers {
     ssh = {
-      source = "loafoe/ssh"
+      source  = "loafoe/ssh"
+      version = "~> 2.7"
     }
     postgresql = {
-      source = "cyrilgdn/postgresql"
+      source  = "cyrilgdn/postgresql"
+      version = "~> 1.26"
     }
   }
 }

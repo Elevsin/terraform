@@ -3,9 +3,12 @@
 # =============================================================================
 
 terraform {
+  required_version = "~> 1.16"
+
   required_providers {
     vagrant = {
-      source = "bmatcuk/vagrant"
+      source  = "bmatcuk/vagrant"
+      version = "~> 4.1"
     }
   }
 }

@@ -6,15 +6,20 @@
 # =============================================================================
 
 terraform {
+  required_version = "~> 1.16"
+
   required_providers {
     ssh = {
-      source = "loafoe/ssh"
+      source  = "loafoe/ssh"
+      version = "~> 2.7"
     }
     docker = {
-      source = "kreuzwerker/docker"
+      source  = "kreuzwerker/docker"
+      version = "~> 4.5"
     }
     grafana = {
-      source = "grafana/grafana"
+      source  = "grafana/grafana"
+      version = "~> 3.25.7"
     }
   }
 }

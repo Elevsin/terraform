@@ -1,0 +1,76 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    "helpers:pinGitHubActionDigests"
+  ],
+
+  "timezone": "Europe/Kyiv",
+  "schedule": ["before 6am on monday"],
+
+  "labels": ["dependencies"],
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+
+  "//": "Менеджер pre-commit выключен по умолчанию — включаем явно, иначе rev в .pre-commit-config.yaml обновляться не будут.",
+  "pre-commit": {
+    "enabled": true
+  },
+
+  "//lockFileMaintenance": "Раз в месяц пересобирает .terraform.lock.hcl. См. раздел про lock-файлы в SETUP.md — на Mend-hosted работает не всегда.",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on the first day of the month"]
+  },
+
+  "packageRules": [
+    {
+      "description": "Все экшены одним PR — иначе на каждый мажор придёт отдельный",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions",
+      "commitMessageTopic": "GitHub Actions"
+    },
+    {
+      "description": "Хуки pre-commit тоже одним PR",
+      "matchManagers": ["pre-commit"],
+      "groupName": "pre-commit hooks"
+    },
+    {
+      "description": "terraform / tflint / terraform-docs из .tool-versions",
+      "matchManagers": ["asdf"],
+      "groupName": "tool versions"
+    },
+    {
+      "description": "required_version двигают осознанно, автобампы тут только шумят",
+      "matchManagers": ["terraform"],
+      "matchDepTypes": ["required_version"],
+      "enabled": false
+    },
+    {
+      "description": "Мажоры провайдеров и модулей — только после галочки в Dependency Dashboard",
+      "matchManagers": ["terraform"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "bmatcuk/vagrant обновляется редко и ломуче — отдельным PR, без группировки",
+      "matchPackageNames": ["bmatcuk/vagrant"],
+      "groupName": null
+    }
+  ]
+
+  ,"//postUpgradeTasks": [
+    "Регенерация .terraform.lock.hcl после бампа провайдера.",
+    "Работает ТОЛЬКО на self-hosted Renovate: на бесплатном Mend-hosted приложении",
+    "выполнение произвольных команд запрещено. Раскомментируй, если поднимешь свой раннер.",
+    {
+      "commands": [
+        "terraform providers lock -platform=linux_amd64 -platform=darwin_arm64"
+      ],
+      "fileFilters": ["**/.terraform.lock.hcl"],
+      "executionMode": "branch"
+    }
+  ]
+}
