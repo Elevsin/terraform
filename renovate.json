@@ -14,11 +14,6 @@
   "prConcurrentLimit": 5,
   "prHourlyLimit": 2,
 
-  "//": "Менеджер pre-commit выключен по умолчанию — включаем явно, иначе rev в .pre-commit-config.yaml обновляться не будут.",
-  "pre-commit": {
-    "enabled": true
-  },
-
   "//lockFileMaintenance": "Раз в месяц пересобирает .terraform.lock.hcl. См. раздел про lock-файлы в SETUP.md — на Mend-hosted работает не всегда.",
   "lockFileMaintenance": {
     "enabled": true,
@@ -31,11 +26,6 @@
       "matchManagers": ["github-actions"],
       "groupName": "github actions",
       "commitMessageTopic": "GitHub Actions"
-    },
-    {
-      "description": "Хуки pre-commit тоже одним PR",
-      "matchManagers": ["pre-commit"],
-      "groupName": "pre-commit hooks"
     },
     {
       "description": "terraform / tflint / terraform-docs из .tool-versions",
