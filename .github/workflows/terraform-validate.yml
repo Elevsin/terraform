@@ -270,6 +270,7 @@ jobs:
           output-file: README.md
           output-method: inject
           fail-on-diff: true
+          config-file: .terraform-docs.yml
 
   # ---------------------------------------------------------------------
   # 8. Секреты в коде и корректность самих воркфлоу.
