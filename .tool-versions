@@ -1,6 +1,6 @@
 # Единый источник версий для локальной машины (asdf / mise) и для CI.
 # Локально: mise install  (или asdf install)
 # В CI эти же значения читает джоба setup.
-terraform 1.16.0
+terraform 1.16.1
 tflint 0.64.0
-terraform-docs 0.20.0
+terraform-docs 0.24.0
