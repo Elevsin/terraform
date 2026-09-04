@@ -58,6 +58,6 @@ locals {
   postgres_password   = "ProdPgAdmin123"
   mysql_tf_password   = "ProdTfAdmin123"
   pmm_db_password     = "ProdPmmDb123"
-  metrics_key = "123465"
+  metrics_key         = "AKIA3XZQ7FJ2MPLVQK9D"
 
 }
