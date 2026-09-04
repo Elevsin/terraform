@@ -191,21 +191,28 @@ jobs:
         run: |
           set -uo pipefail
           rc=0
+          failed=()
           cfg="$GITHUB_WORKSPACE/.tflint.hcl"
-
+          
           if [ -d modules ]; then
             echo "::group::modules"
-            (cd modules && tflint --recursive --format=compact --config "$cfg") || rc=1
+            (cd modules && tflint --recursive --format=compact --config "$cfg") \
+              || { rc=1; failed+=("modules"); }
             echo "::endgroup::"
           fi
-
+          
           if [ -d environments ]; then
             echo "::group::environments"
             (cd environments && tflint --recursive --format=compact --config "$cfg" \
-               --disable-rule=terraform_standard_module_structure) || rc=1
+               --disable-rule=terraform_standard_module_structure) \
+              || { rc=1; failed+=("environments"); }
             echo "::endgroup::"
           fi
-
+          
+          if [ $rc -ne 0 ]; then
+            echo "::error::tflint нашёл замечания в: ${failed[*]}. Раскройте группы выше. Замечания помечены как Warning — это уровень правила, но джобу они всё равно валят."
+          fi
+          
           exit $rc
 
   # ---------------------------------------------------------------------
