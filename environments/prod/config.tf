@@ -53,9 +53,11 @@ locals {
   # Пароли
   # ---------------------------------------------------------------------------
 
-  mysql_root_password = "ProdRoot123"
+  mysql_root_password = "ProdRoot456"
   pmm_admin_password  = "ProdPmmAdmin123"
   postgres_password   = "ProdPgAdmin123"
   mysql_tf_password   = "ProdTfAdmin123"
   pmm_db_password     = "ProdPmmDb123"
+  #metrics_key         = "AKIA3XZQ7FJ2MPLVQK9D"
+
 }
