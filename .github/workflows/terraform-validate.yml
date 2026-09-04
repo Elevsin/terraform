@@ -142,11 +142,6 @@ jobs:
   # 4. TFLint
   #    Провайдерного ruleset для vagrant нет — работает core-ruleset.
   #
-  #    Конфиг передаётся АБСОЛЮТНЫМ путём: в режиме --recursive tflint
-  #    читает .tflint.hcl из той директории, в которую перешёл, поэтому
-  #    без --config корневой конфиг молча игнорируется и работает только
-  #    дефолтный preset.
-  #
   #    Прогонов два, потому что исключить директорию в конфиге tflint
   #    нельзя. terraform_standard_module_structure — соглашение для
   #    переиспользуемых модулей; корневые модули в environments/
@@ -215,10 +210,6 @@ jobs:
 
   # ---------------------------------------------------------------------
   # 5. Синтаксис Vagrantfile.
-  #
-  #    Shellcheck здесь был, но проверять ему нечего: provisioning живёт
-  #    в commands внутри modules/*/main.tf, а не в .sh. Появятся реальные
-  #    скрипты — вернуть шаг обратно.
   # ---------------------------------------------------------------------
   vagrant-lint:
     name: Vagrantfile lint
@@ -278,8 +269,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
-      GITLEAKS_VERSION: "8.24.3"     # renovate: datasource=github-releases depName=gitleaks/gitleaks
-      ACTIONLINT_VERSION: "1.7.7"    # renovate: datasource=github-releases depName=rhysd/actionlint
+      GITLEAKS_VERSION: "8.24.3"
+      ACTIONLINT_VERSION: "1.7.7"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -294,8 +285,6 @@ jobs:
           tar xzf gitleaks.tar.gz gitleaks
           ./gitleaks version
 
-      # Диапазон коммитов события. Пусто = вся история (workflow_dispatch,
-      # а также первый push в ветку, где before — нулевой SHA).
       - name: Определить диапазон коммитов
         id: range
         shell: bash
@@ -372,10 +361,6 @@ jobs:
 
   # ---------------------------------------------------------------------
   # 8. Один статус-чек для branch protection.
-  #
-  #    setup обязан быть в needs: без него падение setup превращает все
-  #    зависимые джобы в skipped, а skipped проходит фильтр ниже — гейт
-  #    отдаёт зелёный статус на прогоне, где не выполнилось ничего.
   # ---------------------------------------------------------------------
   ci-passed:
     name: CI passed
