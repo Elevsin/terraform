@@ -322,7 +322,7 @@ jobs:
           set -euo pipefail
           opts=()
           [ -n "$RANGE" ] && opts=(--log-opts="$RANGE")
-          ./gitleaks git . --no-banner --redact -c gitleaks.toml "${opts[@]}"
+          ./gitleaks git . --no-banner --redact -v -c gitleaks.toml "${opts[@]}"
 
       - name: gitleaks (пароли стенда — только предупреждение)
         if: always()
