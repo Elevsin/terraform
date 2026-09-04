@@ -21,8 +21,6 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 
-# .terraform.lock.hcl НУЖНО коммитить — он фиксирует версии провайдеров.
-
 # --- Vagrant ---
 .vagrant/
 *.box
