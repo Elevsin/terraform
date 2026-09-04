@@ -156,7 +156,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
 
       - name: tflint
-        run: tflint --recursive --format=compact
+        run: tflint --recursive --format=compact --config "$(pwd)/.tflint.hcl"
   # ---------------------------------------------------------------------
   # 5. синтаксис Vagrantfile и shellcheck по provisioning-скриптам.
   # ---------------------------------------------------------------------
