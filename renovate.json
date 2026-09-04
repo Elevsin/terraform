@@ -14,15 +14,9 @@
   "prConcurrentLimit": 5,
   "prHourlyLimit": 2,
 
-  "//lockFileMaintenance": "Раз в месяц пересобирает .terraform.lock.hcl. См. раздел про lock-файлы в SETUP.md — на Mend-hosted работает не всегда.",
-  "lockFileMaintenance": {
-    "enabled": true,
-    "schedule": ["before 6am on the first day of the month"]
-  },
-
   "packageRules": [
     {
-      "description": "Все экшены одним PR — иначе на каждый мажор придёт отдельный",
+      "description": "Все экшены одним PR",
       "matchManagers": ["github-actions"],
       "groupName": "github actions",
       "commitMessageTopic": "GitHub Actions"
@@ -48,19 +42,6 @@
       "description": "bmatcuk/vagrant обновляется редко и ломуче — отдельным PR, без группировки",
       "matchPackageNames": ["bmatcuk/vagrant"],
       "groupName": null
-    }
-  ]
-
-  ,"//postUpgradeTasks": [
-    "Регенерация .terraform.lock.hcl после бампа провайдера.",
-    "Работает ТОЛЬКО на self-hosted Renovate: на бесплатном Mend-hosted приложении",
-    "выполнение произвольных команд запрещено. Раскомментируй, если поднимешь свой раннер.",
-    {
-      "commands": [
-        "terraform providers lock -platform=linux_amd64 -platform=darwin_arm64"
-      ],
-      "fileFilters": ["**/.terraform.lock.hcl"],
-      "executionMode": "branch"
     }
   ]
 }
