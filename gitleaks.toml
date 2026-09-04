@@ -1,0 +1,14 @@
+[extend]
+useDefault = true
+
+[[rules]]
+id = "hashicorp-tf-password"
+  [rules.allowlist]
+  description = "Пароли локального стенда"
+  paths = ['''environments/(prod|stage)/config\.tf''']
+
+[[rules]]
+id = "generic-api-key"
+  [rules.allowlist]
+  description = "Пароли локального стенда"
+  paths = ['''environments/(prod|stage)/config\.tf''']

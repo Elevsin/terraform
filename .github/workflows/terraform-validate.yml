@@ -27,6 +27,7 @@ jobs:
   setup:
     name: Setup
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       terraform_version: ${{ steps.versions.outputs.terraform }}
       dirs: ${{ steps.find.outputs.dirs }}
@@ -95,6 +96,7 @@ jobs:
     name: terraform fmt
     needs: setup
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
@@ -114,6 +116,7 @@ jobs:
     needs: setup
     if: needs.setup.outputs.has_dirs == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -138,11 +141,24 @@ jobs:
   # ---------------------------------------------------------------------
   # 4. TFLint
   #    Провайдерного ruleset для vagrant нет — работает core-ruleset.
+  #
+  #    Конфиг передаётся АБСОЛЮТНЫМ путём: в режиме --recursive tflint
+  #    читает .tflint.hcl из той директории, в которую перешёл, поэтому
+  #    без --config корневой конфиг молча игнорируется и работает только
+  #    дефолтный preset.
+  #
+  #    Прогонов два, потому что исключить директорию в конфиге tflint
+  #    нельзя. terraform_standard_module_structure — соглашение для
+  #    переиспользуемых модулей; корневые модули в environments/
+  #    параметризуются через locals, блоков variable у них нет и
+  #    variables.tf им не нужен.
   # ---------------------------------------------------------------------
   tflint:
     name: tflint
     needs: setup
+    if: needs.setup.outputs.has_dirs == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
@@ -155,16 +171,61 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
+      # Прогоны привязаны к modules/ и environments/. Если .tf появится
+      # где-то ещё, он выпадет из линтинга — здесь это ловится явно.
+      - name: Проверить, что все .tf-директории покрыты линтом
+        shell: bash
+        env:
+          DIRS: ${{ needs.setup.outputs.dirs }}
+        run: |
+          set -euo pipefail
+          uncovered=$(printf '%s' "$DIRS" | jq -r '.[]
+            | select((. == "modules" or . == "environments"
+                      or startswith("modules/")
+                      or startswith("environments/")) | not)')
+          if [ -n "$uncovered" ]; then
+            echo "::error::Директории с *.tf вне modules/ и environments/ не линтуются:"
+            printf '%s\n' "$uncovered"
+            echo "Добавьте их в джобу tflint или перенесите в существующее дерево."
+            exit 1
+          fi
+          echo "Все .tf-директории покрыты."
+
       - name: tflint
-        run: tflint --recursive --format=compact --config "$(pwd)/.tflint.hcl"
+        shell: bash
+        run: |
+          set -uo pipefail
+          rc=0
+          cfg="$GITHUB_WORKSPACE/.tflint.hcl"
+
+          if [ -d modules ]; then
+            echo "::group::modules"
+            (cd modules && tflint --recursive --format=compact --config "$cfg") || rc=1
+            echo "::endgroup::"
+          fi
+
+          if [ -d environments ]; then
+            echo "::group::environments"
+            (cd environments && tflint --recursive --format=compact --config "$cfg" \
+               --disable-rule=terraform_standard_module_structure) || rc=1
+            echo "::endgroup::"
+          fi
+
+          exit $rc
+
   # ---------------------------------------------------------------------
-  # 5. синтаксис Vagrantfile и shellcheck по provisioning-скриптам.
+  # 5. Синтаксис Vagrantfile.
+  #
+  #    Shellcheck здесь был, но проверять ему нечего: provisioning живёт
+  #    в commands внутри modules/*/main.tf, а не в .sh. Появятся реальные
+  #    скрипты — вернуть шаг обратно.
   # ---------------------------------------------------------------------
   vagrant-lint:
-    name: Vagrantfile & shell lint
+    name: Vagrantfile lint
     needs: setup
     if: needs.setup.outputs.has_vagrantfile == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
@@ -180,25 +241,15 @@ jobs:
           done < <(find . -name 'Vagrantfile*' -not -path './.git/*')
           exit $rc
 
-      - name: shellcheck
-        shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -t files < <(find . -name '*.sh' -not -path './.git/*')
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "shell-скриптов не найдено, пропускаем"
-            exit 0
-          fi
-          shellcheck --severity=warning "${files[@]}"
-
   # ---------------------------------------------------------------------
   # 6. Проверка, что README модулей соответствует их переменным.
   # ---------------------------------------------------------------------
   docs:
     name: terraform-docs
-    runs-on: ubuntu-24.04
     needs: setup
     if: needs.setup.outputs.has_modules == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
@@ -212,42 +263,143 @@ jobs:
 
   # ---------------------------------------------------------------------
   # 7. Секреты в коде и корректность самих воркфлоу.
+  #
+  #    gitleaks вызывается бинарником, а не через gitleaks-action: нужны
+  #    два прогона с разной строгостью, а action такого не умеет. Заодно
+  #    отпадает лицензия, обязательная для организаций.
+  #
+  #    Строгий прогон читает gitleaks.toml, где пароли стенда в
+  #    environments/*/config.tf вынесены в allowlist по двум правилам.
+  #    Мягкий прогон работает по дефолтным правилам и только сообщает,
+  #    какие пароли затронуты в этом изменении.
   # ---------------------------------------------------------------------
   hygiene:
     name: gitleaks & actionlint
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: "8.24.3"     # renovate: datasource=github-releases depName=gitleaks/gitleaks
+      ACTIONLINT_VERSION: "1.7.7"    # renovate: datasource=github-releases depName=rhysd/actionlint
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0        # gitleaks смотрит историю
 
-      - name: gitleaks
-        uses: gitleaks/gitleaks-action@v3
+      - name: Установить gitleaks
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar xzf gitleaks.tar.gz gitleaks
+          ./gitleaks version
+
+      # Диапазон коммитов события. Пусто = вся история (workflow_dispatch,
+      # а также первый push в ветку, где before — нулевой SHA).
+      - name: Определить диапазон коммитов
+        id: range
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          NULL_SHA=0000000000000000000000000000000000000000
+          range=""
+          case "$EVENT" in
+            pull_request) range="${PR_BASE}..${PR_HEAD}" ;;
+            push)
+              if [ "$BEFORE" != "$NULL_SHA" ]; then range="${BEFORE}..${AFTER}"; fi
+              ;;
+          esac
+          echo "range=${range}" >> "$GITHUB_OUTPUT"
+          echo "Диапазон: ${range:-вся история}"
+
+      - name: gitleaks (строгий)
+        shell: bash
+        env:
+          RANGE: ${{ steps.range.outputs.range }}
+        run: |
+          set -euo pipefail
+          opts=()
+          [ -n "$RANGE" ] && opts=(--log-opts="$RANGE")
+          ./gitleaks git . --no-banner --redact -c gitleaks.toml "${opts[@]}"
+
+      - name: gitleaks (пароли стенда — только предупреждение)
+        if: always()
+        shell: bash
+        env:
+          RANGE: ${{ steps.range.outputs.range }}
+        run: |
+          set -euo pipefail
+          opts=()
+          [ -n "$RANGE" ] && opts=(--log-opts="$RANGE")
+          ./gitleaks git . --no-banner --redact --exit-code 0 \
+            -f json -r soft.json "${opts[@]}" > /dev/null
+
+          python3 - <<'PY'
+          import json
+          PW_RULES = {"hashicorp-tf-password", "generic-api-key"}
+          try:
+              findings = json.load(open("soft.json"))
+          except Exception:
+              findings = []
+          hits = [f for f in findings
+                  if f["RuleID"] in PW_RULES
+                  and f["File"].startswith("environments/")
+                  and f["File"].endswith("config.tf")]
+          if not hits:
+              print("Пароли стенда в этом изменении не затронуты.")
+          else:
+              print(f"::warning::Затронуто паролей стенда: {len(hits)}. "
+                    "Для локального стенда это допустимо — убедитесь, "
+                    "что значение не используется нигде за его пределами.")
+              for f in sorted(hits, key=lambda x: (x["File"], x["StartLine"])):
+                  print(f'  {f["File"]}:{f["StartLine"]}  ({f["RuleID"]})')
+          PY
 
       - name: actionlint
         shell: bash
         run: |
           set -euo pipefail
-          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          curl -sSL -o actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          tar xzf actionlint.tar.gz actionlint
           ./actionlint -color
 
   # ---------------------------------------------------------------------
   # 8. Один статус-чек для branch protection.
+  #
+  #    setup обязан быть в needs: без него падение setup превращает все
+  #    зависимые джобы в skipped, а skipped проходит фильтр ниже — гейт
+  #    отдаёт зелёный статус на прогоне, где не выполнилось ничего.
   # ---------------------------------------------------------------------
   ci-passed:
     name: CI passed
     if: always()
-    needs: [fmt, validate, tflint, vagrant-lint, docs, hygiene]
+    needs: [setup, fmt, validate, tflint, vagrant-lint, docs, hygiene]
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Check results
         shell: bash
         env:
           RESULTS: ${{ toJSON(needs) }}
+          SETUP_RESULT: ${{ needs.setup.result }}
         run: |
+          set -euo pipefail
           echo "$RESULTS"
+
+          if [ "$SETUP_RESULT" != "success" ]; then
+            echo "::error::setup завершился со статусом '${SETUP_RESULT}' — остальные проверки недостоверны"
+            exit 1
+          fi
+
+          # skipped остаётся допустимым: его дают условные джобы
+          # vagrant-lint, docs и validate через свои if.
           if echo "$RESULTS" | jq -e 'to_entries
                | map(select(.value.result == "failure" or .value.result == "cancelled"))
                | length > 0' > /dev/null; then
