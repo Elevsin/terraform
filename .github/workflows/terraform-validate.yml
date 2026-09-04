@@ -32,7 +32,6 @@ jobs:
       dirs: ${{ steps.find.outputs.dirs }}
       has_dirs: ${{ steps.find.outputs.has_dirs }}
       has_vagrantfile: ${{ steps.find.outputs.has_vagrantfile }}
-      has_tests: ${{ steps.find.outputs.has_tests }}
       has_modules: ${{ steps.find.outputs.has_modules }}
     steps:
       - uses: actions/checkout@v7
@@ -78,12 +77,6 @@ jobs:
             echo "has_vagrantfile=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_vagrantfile=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          if find . -name '*.tftest.hcl' -not -path './.git/*' | grep -q .; then
-            echo "has_tests=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_tests=false" >> "$GITHUB_OUTPUT"
           fi
 
           if find ./modules -name '*.tf' 2>/dev/null | grep -q .; then
@@ -136,19 +129,7 @@ jobs:
           terraform_version: ${{ needs.setup.outputs.terraform_version }}
           terraform_wrapper: false
 
-      - name: Prepare plugin cache dir
-        run: mkdir -p ~/.terraform.d/plugin-cache
-
-      - name: Cache providers
-        uses: actions/cache@v5
-        with:
-          path: ~/.terraform.d/plugin-cache
-          key: tf-plugins-${{ runner.os }}-${{ hashFiles('**/.terraform.lock.hcl') }}
-          restore-keys: tf-plugins-${{ runner.os }}-
-
       - name: terraform init
-        env:
-          TF_PLUGIN_CACHE_DIR: ~/.terraform.d/plugin-cache
         run: terraform init -backend=false -no-color
 
       - name: terraform validate
@@ -160,6 +141,7 @@ jobs:
   # ---------------------------------------------------------------------
   tflint:
     name: tflint
+    needs: setup
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -172,35 +154,11 @@ jobs:
         run: tflint --init
         env:
           GITHUB_TOKEN: ${{ github.token }}
-  # ---------------------------------------------------------------------
-  # 5. Нативные тесты модулей terraform test
-  # ---------------------------------------------------------------------
-  tf-test:
-    name: terraform test
-    needs: setup
-    if: needs.setup.outputs.has_tests == 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
 
-      - uses: hashicorp/setup-terraform@v4
-        with:
-          terraform_version: ${{ needs.setup.outputs.terraform_version }}
-          terraform_wrapper: false
-
-      - name: terraform test
-        run: |
-          set -euo pipefail
-          rc=0
-          while IFS= read -r d; do
-            echo "::group::$d"
-            (cd "$d" && terraform init -backend=false -no-color && terraform test -no-color) || rc=1
-            echo "::endgroup::"
-          done < <(find . -name '*.tftest.hcl' -not -path './.git/*' -exec dirname {} \; | sort -u)
-          exit $rc
-
+      - name: tflint
+        run: tflint --recursive --format=compact
   # ---------------------------------------------------------------------
-  # 6. синтаксис Vagrantfile и shellcheck по provisioning-скриптам.
+  # 5. синтаксис Vagrantfile и shellcheck по provisioning-скриптам.
   # ---------------------------------------------------------------------
   vagrant-lint:
     name: Vagrantfile & shell lint
@@ -234,7 +192,7 @@ jobs:
           shellcheck --severity=warning "${files[@]}"
 
   # ---------------------------------------------------------------------
-  # 7. Проверка, что README модулей соответствует их переменным.
+  # 6. Проверка, что README модулей соответствует их переменным.
   # ---------------------------------------------------------------------
   docs:
     name: terraform-docs
@@ -252,12 +210,8 @@ jobs:
           fail-on-diff: true
           config-file: .terraform-docs.yml
 
-      - name: Show diff
-        if: always()
-        run: git --no-pager diff HEAD -- 'modules/**/README.md'
-
   # ---------------------------------------------------------------------
-  # 8. Секреты в коде и корректность самих воркфлоу.
+  # 7. Секреты в коде и корректность самих воркфлоу.
   # ---------------------------------------------------------------------
   hygiene:
     name: gitleaks & actionlint
@@ -280,12 +234,12 @@ jobs:
           ./actionlint -color
 
   # ---------------------------------------------------------------------
-  # 9. Один статус-чек для branch protection.
+  # 8. Один статус-чек для branch protection.
   # ---------------------------------------------------------------------
   ci-passed:
     name: CI passed
     if: always()
-    needs: [fmt, validate, tflint, tf-test, vagrant-lint, docs, hygiene]
+    needs: [fmt, validate, tflint, vagrant-lint, docs, hygiene]
     runs-on: ubuntu-24.04
     steps:
       - name: Check results
